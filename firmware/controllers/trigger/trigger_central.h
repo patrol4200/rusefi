@@ -241,6 +241,7 @@ void onConfigurationChangeTriggerCallback();
 #define SYMMETRICAL_THREE_TIMES_CRANK_SENSOR_DIVIDER (3 * 2)
 #define SYMMETRICAL_SIX_TIMES_CRANK_SENSOR_DIVIDER (6 * 2)
 #define SYMMETRICAL_TWELVE_TIMES_CRANK_SENSOR_DIVIDER (12 * 2)
+#define SYMMETRICAL_EIGHTEEN_TIMES_CRANK_SENSOR_DIVIDER (18 * 2)
 
 TriggerCentral * getTriggerCentral();
 int getCrankDivider(operation_mode_e operationMode);

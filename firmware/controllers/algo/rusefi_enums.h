@@ -300,6 +300,13 @@ typedef enum {
 	 * Same pattern repeated six times on crank wheel like 1995 Lamborghini Diablo
 	 */
 	FOUR_STROKE_SIX_TIMES_CRANK_SENSOR = 7,
+
+	/**
+	 * Same pattern repeated eighteen times on the crank wheel.
+	 * Intended for an 18-tooth crank wheel with no missing teeth,
+	 * plus a single cam tooth used to define phase on every restart.
+	 */
+	FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR = 8,
 } operation_mode_e;
 
 /**

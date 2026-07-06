@@ -367,8 +367,8 @@ case trigger_type_e::TT_TRI_TACH:
   return "TT_TRI_TACH";
 case trigger_type_e::TT_UNUSED:
   return "TT_UNUSED";
-case trigger_type_e::TT_UNUSED_95:
-  return "TT_UNUSED_95";
+case trigger_type_e::TT_VS_ECOTEC_18X_1X:
+  return "VS Ecotec 18x Crank + 1x Cam";
 case trigger_type_e::TT_UNUSED_96:
   return "TT_UNUSED_96";
 case trigger_type_e::TT_VVT_BARRA_3_PLUS_1:

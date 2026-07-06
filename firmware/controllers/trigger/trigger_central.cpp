@@ -101,6 +101,8 @@ int getCrankDivider(operation_mode_e operationMode) {
 		return SYMMETRICAL_SIX_TIMES_CRANK_SENSOR_DIVIDER;
 	case FOUR_STROKE_TWELVE_TIMES_CRANK_SENSOR:
 		return SYMMETRICAL_TWELVE_TIMES_CRANK_SENSOR_DIVIDER;
+	case FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR:
+		return SYMMETRICAL_EIGHTEEN_TIMES_CRANK_SENSOR_DIVIDER;
 	case OM_NONE:
 	case FOUR_STROKE_CAM_SENSOR:
 	case TWO_STROKE:
@@ -152,6 +154,13 @@ PUBLIC_API_WEAK angle_t customAdjustCustom(TriggerCentral *tc, vvt_mode_e vvtMod
   return 0;
 }
 
+static angle_t syncVsEcotec18xSingleToothCam(TriggerCentral *tc, int crankDivider) {
+	// The cam tooth is the phase anchor for this otherwise symmetrical 18x crank wheel.
+	// Make the next crank event after the cam edge the sync reference on every restart.
+	int nextToothRemainder = (tc->triggerState.currentCycle.current_index + 1) % crankDivider;
+	return tc->syncEnginePhaseAndReport(crankDivider, nextToothRemainder);
+}
+
 static angle_t adjustCrankPhase(int camIndex) {
 	float maxSyncThreshold = engineConfiguration->maxCamPhaseResolveRpm;
 	if (maxSyncThreshold != 0 && Sensor::getOrZero(SensorType::Rpm) > maxSyncThreshold) {
@@ -177,6 +186,10 @@ static angle_t adjustCrankPhase(int camIndex) {
 	case VVT_MITSUBISHI_4G63:
 		return tc->syncEnginePhaseAndReport(crankDivider, 1);
 	case VVT_SINGLE_TOOTH:
+		if (operationMode == FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR) {
+			return syncVsEcotec18xSingleToothCam(tc, crankDivider);
+		}
+		[[fallthrough]];
 	case VVT_NISSAN_VQ:
 	case VVT_BOSCH_QUICK_START:
 	case VVT_BMW_N63TU:

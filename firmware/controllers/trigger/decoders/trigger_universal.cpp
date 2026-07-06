@@ -179,6 +179,13 @@ void configure12ToothCrank(TriggerWaveform* s) {
   commonSymmetrical(s, 12, 0.2f, 3.4f);
 }
 
+void configureVsEcotec18x1x(TriggerWaveform* s) {
+	s->initialize(FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR, SyncEdge::RiseOnly);
+
+	// The cam tooth resolves phase. Final ignition alignment still uses trigger offset.
+	commonSymmetrical(s, 18, 0.2f, 3.4f);
+}
+
 void configure3ToothCrank(TriggerWaveform* s) {
 	s->initialize(FOUR_STROKE_THREE_TIMES_CRANK_SENSOR, SyncEdge::RiseOnly);
   commonSymmetrical(s, 3, 0.5, 1.4);

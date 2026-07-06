@@ -122,6 +122,8 @@ angle_t TriggerWaveform::getCycleDuration() const {
 		return FOUR_STROKE_CYCLE_DURATION / SYMMETRICAL_SIX_TIMES_CRANK_SENSOR_DIVIDER;
 	case FOUR_STROKE_TWELVE_TIMES_CRANK_SENSOR:
 		return FOUR_STROKE_CYCLE_DURATION / SYMMETRICAL_TWELVE_TIMES_CRANK_SENSOR_DIVIDER;
+	case FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR:
+		return FOUR_STROKE_CYCLE_DURATION / SYMMETRICAL_EIGHTEEN_TIMES_CRANK_SENSOR_DIVIDER;
 	case FOUR_STROKE_CRANK_SENSOR:
 	case TWO_STROKE:
 		return TWO_STROKE_CYCLE_DURATION;
@@ -140,6 +142,7 @@ bool TriggerWaveform::needsDisambiguation() const {
 		case FOUR_STROKE_THREE_TIMES_CRANK_SENSOR:
 		case FOUR_STROKE_SIX_TIMES_CRANK_SENSOR:
 		case FOUR_STROKE_TWELVE_TIMES_CRANK_SENSOR:
+		case FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR:
 			return true;
 		case FOUR_STROKE_CAM_SENSOR:
 		case TWO_STROKE:
@@ -160,6 +163,7 @@ bool TriggerWaveform::needsDisambiguation() const {
 size_t TriggerWaveform::getLength() const {
 	/**
 	 * 24 for FOUR_STROKE_TWELVE_TIMES_CRANK_SENSOR
+	 * 36 for FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR
 	 * 6 for FOUR_STROKE_THREE_TIMES_CRANK_SENSOR
 	 * 4 for FOUR_STROKE_SYMMETRICAL_CRANK_SENSOR
 	 * 2 for FOUR_STROKE_CRANK_SENSOR
@@ -782,6 +786,10 @@ void TriggerWaveform::initializeTriggerWaveform(operation_mode_e triggerOperatio
 
 	case trigger_type_e::TT_12_TOOTH_CRANK:
 		configure12ToothCrank(this);
+		break;
+
+	case trigger_type_e::TT_VS_ECOTEC_18X_1X:
+		configureVsEcotec18x1x(this);
 		break;
 
 	case trigger_type_e::TT_ARCTIC_CAT:

@@ -38,3 +38,6 @@ void configure6ToothCrank(TriggerWaveform*);
 
 // TT_12_TOOTH_CRANK
 void configure12ToothCrank(TriggerWaveform*);
+
+// TT_VS_ECOTEC_18X_1X
+void configureVsEcotec18x1x(TriggerWaveform*);
