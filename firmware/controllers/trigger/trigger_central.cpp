@@ -155,15 +155,19 @@ PUBLIC_API_WEAK angle_t customAdjustCustom(TriggerCentral *tc, vvt_mode_e vvtMod
 }
 
 static angle_t syncVsEcotec18xSingleToothCam(TriggerCentral *tc, int crankDivider) {
-	// Once phase is locked, never allow the cam tooth to move engine phase again.
-	// Only a real trigger error should clear full sync and allow re-sync.
+	int nextToothRemainder = (tc->triggerState.currentCycle.current_index + 1) % crankDivider;
+
+	// If already phased, don't allow the cam to MOVE phase.
+	// But still allow normal same-phase confirmation.
 	if (tc->triggerState.hasSynchronizedPhase()) {
-		return 0;
+		int currentRemainder = tc->triggerState.getSynchronizationCounter() % crankDivider;
+
+		if (currentRemainder != nextToothRemainder) {
+			// Wrong cam relationship - ignore it, don't re-phase.
+			return 0;
+		}
 	}
 
-	// The cam tooth is the phase anchor for this otherwise symmetrical 18x crank wheel.
-	// Make the next crank event after the cam edge the sync reference only while acquiring sync.
-	int nextToothRemainder = (tc->triggerState.currentCycle.current_index + 1) % crankDivider;
 	return tc->syncEnginePhaseAndReport(crankDivider, nextToothRemainder);
 }
 
