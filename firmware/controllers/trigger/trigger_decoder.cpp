@@ -225,11 +225,6 @@ int TriggerDecoderBase::getCurrentIndex() const {
 angle_t PrimaryTriggerDecoder::syncEnginePhase(int divider, int remainder, angle_t engineCycle) {
 	efiAssert(ObdCode::OBD_PCM_Processor_Fault, divider > 1, "syncEnginePhase divider", false);
 	efiAssert(ObdCode::OBD_PCM_Processor_Fault, remainder < divider, "syncEnginePhase remainder", false);
-
-	bool wasPhased = m_hasSynchronizedPhase;
-	int beforeCounter = getSynchronizationCounter();
-	int beforeIndex = currentCycle.current_index;
-
 	angle_t totalShift = 0;
 	while (getSynchronizationCounter() % divider != remainder) {
 		/**
@@ -245,17 +240,6 @@ angle_t PrimaryTriggerDecoder::syncEnginePhase(int divider, int remainder, angle
 	m_hasSynchronizedPhase = true;
 
 	if (totalShift > 0) {
-		efiPrintf("VS18X PHASE SHIFT wasPhase=%d div=%d rem=%d beforeCnt=%d afterCnt=%d beforeIdx=%d afterIdx=%d shift=%.1f rpm=%.0f",
-			wasPhased,
-			divider,
-			remainder,
-			beforeCounter,
-			getSynchronizationCounter(),
-			beforeIndex,
-			currentCycle.current_index,
-			totalShift,
-			Sensor::getOrZero(SensorType::Rpm));
-
 		camResyncCounter++;
 		onTransitionEvent(TransitionEvent::EngineResync);
 	}
@@ -268,13 +252,6 @@ void TriggerDecoderBase::incrementShaftSynchronizationCounter() {
 }
 
 void PrimaryTriggerDecoder::onTriggerError() {
-	efiPrintf("VS18X TRIGGER ERROR idx=%d cnt=%d shaftSync=%d phase=%d rpm=%.0f",
-		currentCycle.current_index,
-		synchronizationCounter,
-		getShaftSynchronized(),
-		m_hasSynchronizedPhase,
-		Sensor::getOrZero(SensorType::Rpm));
-
 	// On trigger error, we've lost full sync
 	resetHasFullSync();
 
@@ -366,9 +343,6 @@ void TriggerDecoderBase::onShaftSynchronization(
 		bool wasSynchronized,
 		const efitick_t nowNt,
 		const TriggerWaveform& triggerShape) {
-	int beforeCounter = synchronizationCounter;
-	int beforeIndex = currentCycle.current_index;
-
 	startOfCycleNt = nowNt;
 	resetCurrentCycleState();
 
@@ -378,15 +352,6 @@ void TriggerDecoderBase::onShaftSynchronization(
 		// We have just synchronized, this is the zeroth revolution
 		synchronizationCounter = 0;
 	}
-
-	efiPrintf("VS18X NEW CYCLE wasSync=%d beforeCnt=%d afterCnt=%d beforeIdx=%d afterIdx=%d size=%d rpm=%.0f",
-		wasSynchronized,
-		beforeCounter,
-		synchronizationCounter,
-		beforeIndex,
-		currentCycle.current_index,
-		(int)triggerShape.getSize(),
-		Sensor::getOrZero(SensorType::Rpm));
 
 	totalEventCountBase += triggerShape.getSize();
 
