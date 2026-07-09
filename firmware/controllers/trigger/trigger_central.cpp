@@ -172,6 +172,26 @@ static angle_t syncVsEcotec18xSingleToothCam(TriggerCentral *tc, int crankDivide
 }
 
 static angle_t adjustCrankPhase(int camIndex) {
+	operation_mode_e operationMode = getEngineRotationState()->getOperationMode();
+	auto crankDivider = getCrankDivider(operationMode);
+	TriggerCentral *tc = getTriggerCentral();
+	vvt_mode_e vvtMode = engineConfiguration->vvtMode[camIndex];
+
+	// VS Ecotec 18-2 + single cam, while keeping the existing TT_VS_ECOTEC_18X_1X dropdown name:
+	// the missing-tooth crank pattern gives a hard tooth-zero reference. The cam is only allowed
+	// to resolve the 720-degree phase once. After that, do not let later cam edges move phase.
+	if (engineConfiguration->trigger.type == trigger_type_e::TT_VS_ECOTEC_18X_1X &&
+		operationMode == FOUR_STROKE_CRANK_SENSOR &&
+		vvtMode == VVT_SINGLE_TOOTH) {
+		if (tc->triggerState.hasSynchronizedPhase()) {
+			return 0;
+		}
+
+		// Use the standard 4-stroke crank divider disambiguation. If this ends up 360 degrees out,
+		// swap the return remainder between 0 and 1, but do not allow continuous re-phasing.
+		return tc->syncEnginePhaseAndReport(crankDivider, 0);
+	}
+
 	float maxSyncThreshold = engineConfiguration->maxCamPhaseResolveRpm;
 	if (maxSyncThreshold != 0 && Sensor::getOrZero(SensorType::Rpm) > maxSyncThreshold) {
 		// The user has elected to stop trying to resolve crank phase after some RPM.
@@ -180,17 +200,10 @@ static angle_t adjustCrankPhase(int camIndex) {
 		return 0;
 	}
 
-	operation_mode_e operationMode = getEngineRotationState()->getOperationMode();
-
-	auto crankDivider = getCrankDivider(operationMode);
 	if (crankDivider == 1) {
 		// Crank divider of 1 means there's no ambiguity, so don't try to resolve it
 		return 0;
 	}
-
-	TriggerCentral *tc = getTriggerCentral();
-
-	vvt_mode_e vvtMode = engineConfiguration->vvtMode[camIndex];
 	switch (vvtMode) {
 	case VVT_MAP_V_TWIN:
 	case VVT_MITSUBISHI_4G63:

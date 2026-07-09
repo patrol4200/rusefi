@@ -180,10 +180,15 @@ void configure12ToothCrank(TriggerWaveform* s) {
 }
 
 void configureVsEcotec18x1x(TriggerWaveform* s) {
-	s->initialize(FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR, SyncEdge::RiseOnly);
-
-	// The cam tooth resolves phase. Final ignition alignment still uses trigger offset.
-	commonSymmetrical(s, 18, 0.2f, 3.4f);
+	// VS Ecotec test mode: keep the existing TunerStudio/dropdown name,
+	// but decode the modified crank wheel as 18 total teeth with 2 missing.
+	//
+	// The missing gap gives crank sync/tooth zero. The single cam tooth is then
+	// only used by the normal VVT_SINGLE_TOOTH path to resolve the 720 degree phase.
+	//
+	// RiseOnly is intentional: the selected physical edge can still be changed in
+	// TunerStudio using the primary trigger invert setting, without rebuilding.
+	initializeSkippedToothTrigger(s, 18, 2, FOUR_STROKE_CRANK_SENSOR, SyncEdge::RiseOnly);
 }
 
 void configure3ToothCrank(TriggerWaveform* s) {
