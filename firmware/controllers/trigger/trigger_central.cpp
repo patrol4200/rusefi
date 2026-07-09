@@ -138,23 +138,8 @@ static bool vvtWithRealDecoder(vvt_mode_e vvtMode) {
 angle_t TriggerCentral::syncEnginePhaseAndReport(int divider, int remainder) {
 	angle_t engineCycle = getEngineCycle(getEngineRotationState()->getOperationMode());
 
-	// Debug: capture phase state before attempting cam/crank phase resolve.
-	bool hadPhase = triggerState.hasSynchronizedPhase();
-	int beforeCounter = triggerState.getSynchronizationCounter();
-	int beforeIndex = triggerState.currentCycle.current_index;
-
 	angle_t totalShift = triggerState.syncEnginePhase(divider, remainder, engineCycle);
 	if (totalShift != 0) {
-		efiPrintf("VS18X PHASE SHIFT shift=%.2f div=%d rem=%d hadPhase=%d idx=%d cntBefore=%d cntAfter=%d rpm=%.1f",
-			totalShift,
-			divider,
-			remainder,
-			hadPhase,
-			beforeIndex,
-			beforeCounter,
-			triggerState.getSynchronizationCounter(),
-			Sensor::getOrZero(SensorType::Rpm));
-
 		// Reset instant RPM, since the engine phase has now changed, invalidating the tooth history buffer
 		// maybe TODO: could/should we rotate the buffer around to re-align it instead? Is that worth it?
 		instantRpm.resetInstantRpm();
@@ -172,16 +157,13 @@ PUBLIC_API_WEAK angle_t customAdjustCustom(TriggerCentral *tc, vvt_mode_e vvtMod
 static angle_t syncVsEcotec18xSingleToothCam(TriggerCentral *tc, int crankDivider) {
 	int nextToothRemainder = (tc->triggerState.currentCycle.current_index + 1) % crankDivider;
 
+	// If already phased, don't allow the cam to MOVE phase.
+	// But still allow normal same-phase confirmation.
 	if (tc->triggerState.hasSynchronizedPhase()) {
 		int currentRemainder = tc->triggerState.getSynchronizationCounter() % crankDivider;
 
 		if (currentRemainder != nextToothRemainder) {
-			efiPrintf("VS18X IGNORE CAM REPHASE curRem=%d nextRem=%d idx=%d cnt=%d rpm=%.1f",
-				currentRemainder,
-				nextToothRemainder,
-				tc->triggerState.currentCycle.current_index,
-				tc->triggerState.getSynchronizationCounter(),
-				Sensor::getOrZero(SensorType::Rpm));
+			// Wrong cam relationship - ignore it, don't re-phase.
 			return 0;
 		}
 	}
