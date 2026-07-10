@@ -180,15 +180,24 @@ void configure12ToothCrank(TriggerWaveform* s) {
 }
 
 void configureVsEcotec18x1x(TriggerWaveform* s) {
-	// Factory VS Ecotec crank pattern: 18 evenly spaced crank teeth.
-	// There is no unique crank gap, so the crank signal supplies speed and
-	// position within each 20-degree segment. The single cam tooth resolves
-	// the 720-degree engine phase in trigger_central.cpp.
+	// Dedicated factory VS Ecotec 18x crank shape.
 	//
-	// RiseOnly is intentional. TunerStudio primary-input inversion can select
-	// the opposite physical Hall edge without another firmware build.
+	// All 18 crank teeth are identical, so there is no legitimate crank-gap
+	// pattern to search for.  Do NOT use commonSymmetrical() here: that helper
+	// treats a pair of ordinary gaps as a sync signature, which can disappear
+	// during the sharp acceleration when the engine first fires.
+	//
+	// Instead, every accepted primary rising edge is one 20-degree crank step.
+	// The single cam pulse establishes the absolute 720-degree phase in
+	// trigger_central.cpp, then phase is latched until genuine primary sync loss.
 	s->initialize(FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR, SyncEdge::RiseOnly);
-	commonSymmetrical(s, 18, 0.2f, 3.4f);
+	s->shapeWithoutTdc = true;
+	s->isSynchronizationNeeded = false;
+	s->useOnlyPrimaryForSync = true;
+
+	const float width = 360.0f / 18.0f;
+	s->addEventAngle(width / 2.0f, TriggerValue::FALL, TriggerWheel::T_PRIMARY);
+	s->addEventAngle(width, TriggerValue::RISE, TriggerWheel::T_PRIMARY);
 }
 
 void configure3ToothCrank(TriggerWaveform* s) {

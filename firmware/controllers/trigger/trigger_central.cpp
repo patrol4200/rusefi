@@ -155,78 +155,63 @@ PUBLIC_API_WEAK angle_t customAdjustCustom(TriggerCentral *tc, vvt_mode_e vvtMod
 }
 
 static angle_t syncVsEcotec18xSingleToothCam(TriggerCentral *tc, int crankDivider) {
-	// Once phase is established, the cam is no longer permitted to alter it.
-	// Primary-trigger error handling already clears hasSynchronizedPhase(), so
-	// this helper will automatically reacquire only after a genuine sync loss.
+	// Once the 720-degree phase is known, the cam is not allowed to move it.
+	// A real primary-trigger error calls resetHasFullSync(), so this naturally
+	// becomes eligible to acquire again only after genuine sync loss.
 	if (tc->triggerState.hasSynchronizedPhase()) {
 		return 0;
 	}
 
-	// The physical cam edge can land immediately before or after a crank edge
-	// while cranking because compression causes large instantaneous speed changes.
-	// Therefore do not trust one cam observation. Require two consecutive cam
-	// cycles to identify the same crank remainder, allowing one adjacent event.
-	static int candidateRemainder = -1;
-	static int confirmationCount = 0;
-	static int previousCamSyncCounter = -1;
+	// The dedicated 18x crank decoder synchronizes on every crank tooth and
+	// advances synchronizationCounter once per tooth.  Therefore this counter,
+	// not currentCycle.current_index (which is reset at each tooth), is the
+	// meaningful crank position for cam correlation.
+	const int observedRemainder =
+		tc->triggerState.getSynchronizationCounter() % crankDivider;
 
-	int observedRemainder =
-		(tc->triggerState.currentCycle.current_index + 1) % crankDivider;
-	int currentSyncCounter = tc->triggerState.getSynchronizationCounter();
+	// Require the cam-to-crank relationship to repeat on the next cam cycle.
+	// This rejects one-off event-order changes while the starter crosses a
+	// compression peak.  Adjacent remainders are accepted as the same physical
+	// cam edge straddling a crank-tooth boundary.
+	static int candidateRemainder = -1;
+	static int candidateSyncCounter = -1;
+
+	const int currentSyncCounter =
+		tc->triggerState.getSynchronizationCounter();
 
 	if (candidateRemainder < 0) {
 		candidateRemainder = observedRemainder;
-		confirmationCount = 1;
-		previousCamSyncCounter = currentSyncCounter;
+		candidateSyncCounter = currentSyncCounter;
 		return 0;
 	}
 
-	// A valid second sample must be the next cam cycle, exactly one 720-degree
-	// engine cycle later. This also rejects stale confirmation state left from
-	// an earlier cranking attempt after the primary counter has restarted.
-	if (currentSyncCounter - previousCamSyncCounter != crankDivider) {
+	// One cam pulse per 720 degrees means exactly crankDivider crank-tooth
+	// synchronization steps between valid observations.
+	if (currentSyncCounter - candidateSyncCounter != crankDivider) {
 		candidateRemainder = observedRemainder;
-		confirmationCount = 1;
-		previousCamSyncCounter = currentSyncCounter;
+		candidateSyncCounter = currentSyncCounter;
 		return 0;
 	}
 
-	previousCamSyncCounter = currentSyncCounter;
-
-	int forwardDistance =
+	const int forward =
 		(observedRemainder - candidateRemainder + crankDivider) % crankDivider;
-	int reverseDistance =
+	const int reverse =
 		(candidateRemainder - observedRemainder + crankDivider) % crankDivider;
 
-	if (forwardDistance == 0) {
-		// Exact repeat on the next cam cycle.
-		confirmationCount++;
-	} else if (forwardDistance == 1 || reverseDistance == 1) {
-		// Same physical cam edge straddled a crank-edge boundary. Resolve this
-		// deterministically to the event after the boundary, independent of which
-		// observation happened first.
-		if (forwardDistance == 1) {
-			candidateRemainder = observedRemainder;
-		}
-		confirmationCount++;
-	} else {
-		// Relationship moved by more than one crank event: reject the old sample
-		// and begin a fresh two-cycle confirmation.
+	if (!(forward == 0 || forward == 1 || reverse == 1)) {
 		candidateRemainder = observedRemainder;
-		confirmationCount = 1;
+		candidateSyncCounter = currentSyncCounter;
 		return 0;
 	}
 
-	if (confirmationCount < 2) {
-		return 0;
-	}
-
-	int acceptedRemainder = candidateRemainder;
 	candidateRemainder = -1;
-	confirmationCount = 0;
-	previousCamSyncCounter = -1;
+	candidateSyncCounter = -1;
 
-	return tc->syncEnginePhaseAndReport(crankDivider, acceptedRemainder);
+	// This is the important part: make the confirmed cam occurrence the fixed
+	// phase reference (remainder zero).  Passing the observed remainder here
+	// would usually produce no counter shift and would merely mark an arbitrary
+	// crank phase as synchronized.
+	return tc->syncEnginePhaseAndReport(crankDivider, 0);
 }
 
 static angle_t adjustCrankPhase(int camIndex) {
