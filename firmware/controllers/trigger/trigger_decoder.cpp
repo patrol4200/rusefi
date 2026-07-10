@@ -711,6 +711,18 @@ bool TriggerDecoderBase::isSyncPoint(const TriggerWaveform& triggerShape, trigge
 		}
 	}
 
+	// VS18_2_POSITION_LOCKED_RESYNC
+	// Initial sync may use the confirmed long-gap -> short-recovery signature.
+	// Once synchronized, only accept that signature at the expected end of the
+	// 16-physical-tooth revolution so compression/start-stop transients cannot
+	// reset the crank reference at an intermediate tooth.
+	if (triggerType == trigger_type_e::TT_VS_ECOTEC_18X_1X && getShaftSynchronized()) {
+		const int expectedIndex = (int)triggerShape.getSize()
+			- (triggerShape.useOnlyRisingEdges ? 2 : 1);
+
+		return currentCycle.current_index == expectedIndex;
+	}
+
 	return true;
 }
 
