@@ -180,24 +180,29 @@ void configure12ToothCrank(TriggerWaveform* s) {
 }
 
 void configureVsEcotec18x1x(TriggerWaveform* s) {
-	// Dedicated factory VS Ecotec 18x crank shape.
+	// VS Ecotec test mode: keep the existing TunerStudio/dropdown name,
+	// but decode the modified crank wheel as 18 total teeth with 2 missing.
 	//
-	// All 18 crank teeth are identical, so there is no legitimate crank-gap
-	// pattern to search for.  Do NOT use commonSymmetrical() here: that helper
-	// treats a pair of ordinary gaps as a sync signature, which can disappear
-	// during the sharp acceleration when the engine first fires.
+	// The stock skipped-tooth decoder expects the missing section to measure close
+	// to the theoretical 3.0 tooth periods. This engine does not do that while
+	// cranking under compression: measured normal periods are about 0.6-1.0 ms and
+	// the true missing gap is about 1.7 ms.
 	//
-	// Instead, every accepted primary rising edge is one 20-degree crank step.
-	// The single cam pulse establishes the absolute 720-degree phase in
-	// trigger_central.cpp, then phase is latched until genuine primary sync loss.
-	s->initialize(FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR, SyncEdge::RiseOnly);
-	s->shapeWithoutTdc = true;
-	s->isSynchronizationNeeded = false;
-	s->useOnlyPrimaryForSync = true;
+	// trigger_decoder.cpp therefore compares the candidate gap against the median
+	// and maximum of the previous eight normal teeth. These limits are deliberately
+	// broad enough for cranking speed variation, while the eight-tooth history and
+	// expected tooth-count latch prevent a compression-stretched normal tooth from
+	// moving the synchronization point after lock.
+	initializeSkippedToothTrigger(s, 18, 2, FOUR_STROKE_CRANK_SENSOR, SyncEdge::RiseOnly);
 
-	const float width = 360.0f / 18.0f;
-	s->addEventAngle(width / 2.0f, TriggerValue::FALL, TriggerWheel::T_PRIMARY);
-	s->addEventAngle(width, TriggerValue::RISE, TriggerWheel::T_PRIMARY);
+	// Adaptive gap / rolling-median range used by the dedicated decoder.
+	s->setTriggerSynchronizationGap2(1.45f, 4.50f);
+
+	// Keep eight previous tooth periods available. NaN means these entries are
+	// history only and are not additional generic gap-pattern requirements.
+	for (int gapIndex = 1; gapIndex < 8; gapIndex++) {
+		s->setTriggerSynchronizationGap3(gapIndex, NAN, 100000.0f);
+	}
 }
 
 void configure3ToothCrank(TriggerWaveform* s) {

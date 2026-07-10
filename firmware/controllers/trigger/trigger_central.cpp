@@ -155,63 +155,20 @@ PUBLIC_API_WEAK angle_t customAdjustCustom(TriggerCentral *tc, vvt_mode_e vvtMod
 }
 
 static angle_t syncVsEcotec18xSingleToothCam(TriggerCentral *tc, int crankDivider) {
-	// Once the 720-degree phase is known, the cam is not allowed to move it.
-	// A real primary-trigger error calls resetHasFullSync(), so this naturally
-	// becomes eligible to acquire again only after genuine sync loss.
+	int nextToothRemainder = (tc->triggerState.currentCycle.current_index + 1) % crankDivider;
+
+	// If already phased, don't allow the cam to MOVE phase.
+	// But still allow normal same-phase confirmation.
 	if (tc->triggerState.hasSynchronizedPhase()) {
-		return 0;
+		int currentRemainder = tc->triggerState.getSynchronizationCounter() % crankDivider;
+
+		if (currentRemainder != nextToothRemainder) {
+			// Wrong cam relationship - ignore it, don't re-phase.
+			return 0;
+		}
 	}
 
-	// The dedicated 18x crank decoder synchronizes on every crank tooth and
-	// advances synchronizationCounter once per tooth.  Therefore this counter,
-	// not currentCycle.current_index (which is reset at each tooth), is the
-	// meaningful crank position for cam correlation.
-	const int observedRemainder =
-		tc->triggerState.getSynchronizationCounter() % crankDivider;
-
-	// Require the cam-to-crank relationship to repeat on the next cam cycle.
-	// This rejects one-off event-order changes while the starter crosses a
-	// compression peak.  Adjacent remainders are accepted as the same physical
-	// cam edge straddling a crank-tooth boundary.
-	static int candidateRemainder = -1;
-	static int candidateSyncCounter = -1;
-
-	const int currentSyncCounter =
-		tc->triggerState.getSynchronizationCounter();
-
-	if (candidateRemainder < 0) {
-		candidateRemainder = observedRemainder;
-		candidateSyncCounter = currentSyncCounter;
-		return 0;
-	}
-
-	// One cam pulse per 720 degrees means exactly crankDivider crank-tooth
-	// synchronization steps between valid observations.
-	if (currentSyncCounter - candidateSyncCounter != crankDivider) {
-		candidateRemainder = observedRemainder;
-		candidateSyncCounter = currentSyncCounter;
-		return 0;
-	}
-
-	const int forward =
-		(observedRemainder - candidateRemainder + crankDivider) % crankDivider;
-	const int reverse =
-		(candidateRemainder - observedRemainder + crankDivider) % crankDivider;
-
-	if (!(forward == 0 || forward == 1 || reverse == 1)) {
-		candidateRemainder = observedRemainder;
-		candidateSyncCounter = currentSyncCounter;
-		return 0;
-	}
-
-	candidateRemainder = -1;
-	candidateSyncCounter = -1;
-
-	// This is the important part: make the confirmed cam occurrence the fixed
-	// phase reference (remainder zero).  Passing the observed remainder here
-	// would usually produce no counter shift and would merely mark an arbitrary
-	// crank phase as synchronized.
-	return tc->syncEnginePhaseAndReport(crankDivider, 0);
+	return tc->syncEnginePhaseAndReport(crankDivider, nextToothRemainder);
 }
 
 static angle_t adjustCrankPhase(int camIndex) {
@@ -219,6 +176,21 @@ static angle_t adjustCrankPhase(int camIndex) {
 	auto crankDivider = getCrankDivider(operationMode);
 	TriggerCentral *tc = getTriggerCentral();
 	vvt_mode_e vvtMode = engineConfiguration->vvtMode[camIndex];
+
+	// VS Ecotec 18-2 + single cam, while keeping the existing TT_VS_ECOTEC_18X_1X dropdown name:
+	// the missing-tooth crank pattern gives a hard tooth-zero reference. The cam is only allowed
+	// to resolve the 720-degree phase once. After that, do not let later cam edges move phase.
+	if (engineConfiguration->trigger.type == trigger_type_e::TT_VS_ECOTEC_18X_1X &&
+		operationMode == FOUR_STROKE_CRANK_SENSOR &&
+		vvtMode == VVT_SINGLE_TOOTH) {
+		if (tc->triggerState.hasSynchronizedPhase()) {
+			return 0;
+		}
+
+		// Use the standard 4-stroke crank divider disambiguation. If this ends up 360 degrees out,
+		// swap the return remainder between 0 and 1, but do not allow continuous re-phasing.
+		return tc->syncEnginePhaseAndReport(crankDivider, 0);
+	}
 
 	float maxSyncThreshold = engineConfiguration->maxCamPhaseResolveRpm;
 	if (maxSyncThreshold != 0 && Sensor::getOrZero(SensorType::Rpm) > maxSyncThreshold) {
