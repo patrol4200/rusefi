@@ -180,29 +180,24 @@ void configure12ToothCrank(TriggerWaveform* s) {
 }
 
 void configureVsEcotec18x1x(TriggerWaveform* s) {
-	// VS Ecotec test mode: keep the existing TunerStudio/dropdown name,
-	// but decode the modified crank wheel as 18 total teeth with 2 missing.
+	// VS Ecotec physical 18-2 wheel using the existing TunerStudio trigger name.
 	//
-	// The stock skipped-tooth decoder expects the missing section to measure close
-	// to the theoretical 3.0 tooth periods. This engine does not do that while
-	// cranking under compression: measured normal periods are about 0.6-1.0 ms and
-	// the true missing gap is about 1.7 ms.
+	// Compression makes several ordinary tooth intervals look long enough to be
+	// mistaken for the missing gap.  The real gap is uniquely followed by a short
+	// recovery ratio, so do not synchronize on the long interval itself.  Wait for
+	// the next tooth and require the two-ratio sequence:
 	//
-	// trigger_decoder.cpp therefore compares the candidate gap against the median
-	// and maximum of the previous eight normal teeth. These limits are deliberately
-	// broad enough for cranking speed variation, while the eight-tooth history and
-	// expected tooth-count latch prevent a compression-stretched normal tooth from
-	// moving the synchronization point after lock.
+	//   current normal tooth / previous missing gap = 0.30 .. 0.65
+	//   previous missing gap / tooth before gap     = 1.45 .. 4.50
+	//
+	// This matches the measured cranking pattern (about 1.65 then 0.45-0.51),
+	// while compression-created long teeth recover near 1.0 instead of below 0.65.
 	initializeSkippedToothTrigger(s, 18, 2, FOUR_STROKE_CRANK_SENSOR, SyncEdge::RiseOnly);
 
-	// Adaptive gap / rolling-median range used by the dedicated decoder.
-	s->setTriggerSynchronizationGap2(1.45f, 4.50f);
-
-	// Keep eight previous tooth periods available. NaN means these entries are
-	// history only and are not additional generic gap-pattern requirements.
-	for (int gapIndex = 1; gapIndex < 8; gapIndex++) {
-		s->setTriggerSynchronizationGap3(gapIndex, NAN, 100000.0f);
-	}
+	// VS18_2_CONFIRMED_RECOVERY_DECODER
+	// Index 0 is the newest ratio.  Index 1 is the ratio immediately before it.
+	s->setTriggerSynchronizationGap3(0, 0.30f, 0.65f);
+	s->setTriggerSynchronizationGap3(1, 1.45f, 4.50f);
 }
 
 void configure3ToothCrank(TriggerWaveform* s) {
