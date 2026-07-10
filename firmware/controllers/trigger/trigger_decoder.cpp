@@ -515,6 +515,39 @@ expected<TriggerDecodeResult> TriggerDecoderBase::decodeTriggerEvent(
 			}
 
 			isSynchronizationPoint = isSyncPoint(triggerShape, triggerConfiguration.TriggerType.type);
+
+			// VS18_2_CRANKING_COUNT_HOLD
+			// Initial acquisition is still strict: 1.45..4.50 followed by 0.30..0.65.
+			// After sync is established, however, the measured tooth COUNT is much more
+			// reliable than the gap ratio during a combustion kick. At low RPM, force the
+			// known cycle boundary at eventIndex 30 instead of advancing to 32 and losing
+			// crank sync/full phase merely because that one gap signature was compressed.
+			if (triggerConfiguration.TriggerType.type == trigger_type_e::TT_VS_ECOTEC_18X_1X
+				&& wasSynchronized) {
+				const int expectedIndex = (int)triggerShape.getSize()
+					- (triggerShape.useOnlyRisingEdges ? 2 : 1);
+				const float rpm = Sensor::getOrZero(SensorType::Rpm);
+
+				if (currentCycle.current_index == expectedIndex && rpm < 700.0f) {
+					if (!isSynchronizationPoint) {
+						const float recoveryRatio = toothDurations[1] != 0
+							? (float)toothDurations[0] / toothDurations[1]
+							: 0.0f;
+						const float longGapRatio = toothDurations[2] != 0
+							? (float)toothDurations[1] / toothDurations[2]
+							: 0.0f;
+
+						efiPrintf("VS18X COUNT HOLD rpm=%d index=%d long=%.3f recovery=%.3f",
+							(int)rpm,
+							(int)currentCycle.current_index,
+							longGapRatio,
+							recoveryRatio);
+					}
+
+					isSynchronizationPoint = true;
+				}
+			}
+
 			if (isSynchronizationPoint) {
 				enginePins.debugTriggerSync.toggle();
 			}
