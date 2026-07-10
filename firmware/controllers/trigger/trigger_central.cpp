@@ -155,20 +155,78 @@ PUBLIC_API_WEAK angle_t customAdjustCustom(TriggerCentral *tc, vvt_mode_e vvtMod
 }
 
 static angle_t syncVsEcotec18xSingleToothCam(TriggerCentral *tc, int crankDivider) {
-	int nextToothRemainder = (tc->triggerState.currentCycle.current_index + 1) % crankDivider;
-
-	// If already phased, don't allow the cam to MOVE phase.
-	// But still allow normal same-phase confirmation.
+	// Once phase is established, the cam is no longer permitted to alter it.
+	// Primary-trigger error handling already clears hasSynchronizedPhase(), so
+	// this helper will automatically reacquire only after a genuine sync loss.
 	if (tc->triggerState.hasSynchronizedPhase()) {
-		int currentRemainder = tc->triggerState.getSynchronizationCounter() % crankDivider;
-
-		if (currentRemainder != nextToothRemainder) {
-			// Wrong cam relationship - ignore it, don't re-phase.
-			return 0;
-		}
+		return 0;
 	}
 
-	return tc->syncEnginePhaseAndReport(crankDivider, nextToothRemainder);
+	// The physical cam edge can land immediately before or after a crank edge
+	// while cranking because compression causes large instantaneous speed changes.
+	// Therefore do not trust one cam observation. Require two consecutive cam
+	// cycles to identify the same crank remainder, allowing one adjacent event.
+	static int candidateRemainder = -1;
+	static int confirmationCount = 0;
+	static int previousCamSyncCounter = -1;
+
+	int observedRemainder =
+		(tc->triggerState.currentCycle.current_index + 1) % crankDivider;
+	int currentSyncCounter = tc->triggerState.getSynchronizationCounter();
+
+	if (candidateRemainder < 0) {
+		candidateRemainder = observedRemainder;
+		confirmationCount = 1;
+		previousCamSyncCounter = currentSyncCounter;
+		return 0;
+	}
+
+	// A valid second sample must be the next cam cycle, exactly one 720-degree
+	// engine cycle later. This also rejects stale confirmation state left from
+	// an earlier cranking attempt after the primary counter has restarted.
+	if (currentSyncCounter - previousCamSyncCounter != crankDivider) {
+		candidateRemainder = observedRemainder;
+		confirmationCount = 1;
+		previousCamSyncCounter = currentSyncCounter;
+		return 0;
+	}
+
+	previousCamSyncCounter = currentSyncCounter;
+
+	int forwardDistance =
+		(observedRemainder - candidateRemainder + crankDivider) % crankDivider;
+	int reverseDistance =
+		(candidateRemainder - observedRemainder + crankDivider) % crankDivider;
+
+	if (forwardDistance == 0) {
+		// Exact repeat on the next cam cycle.
+		confirmationCount++;
+	} else if (forwardDistance == 1 || reverseDistance == 1) {
+		// Same physical cam edge straddled a crank-edge boundary. Resolve this
+		// deterministically to the event after the boundary, independent of which
+		// observation happened first.
+		if (forwardDistance == 1) {
+			candidateRemainder = observedRemainder;
+		}
+		confirmationCount++;
+	} else {
+		// Relationship moved by more than one crank event: reject the old sample
+		// and begin a fresh two-cycle confirmation.
+		candidateRemainder = observedRemainder;
+		confirmationCount = 1;
+		return 0;
+	}
+
+	if (confirmationCount < 2) {
+		return 0;
+	}
+
+	int acceptedRemainder = candidateRemainder;
+	candidateRemainder = -1;
+	confirmationCount = 0;
+	previousCamSyncCounter = -1;
+
+	return tc->syncEnginePhaseAndReport(crankDivider, acceptedRemainder);
 }
 
 static angle_t adjustCrankPhase(int camIndex) {
@@ -176,21 +234,6 @@ static angle_t adjustCrankPhase(int camIndex) {
 	auto crankDivider = getCrankDivider(operationMode);
 	TriggerCentral *tc = getTriggerCentral();
 	vvt_mode_e vvtMode = engineConfiguration->vvtMode[camIndex];
-
-	// VS Ecotec 18-2 + single cam, while keeping the existing TT_VS_ECOTEC_18X_1X dropdown name:
-	// the missing-tooth crank pattern gives a hard tooth-zero reference. The cam is only allowed
-	// to resolve the 720-degree phase once. After that, do not let later cam edges move phase.
-	if (engineConfiguration->trigger.type == trigger_type_e::TT_VS_ECOTEC_18X_1X &&
-		operationMode == FOUR_STROKE_CRANK_SENSOR &&
-		vvtMode == VVT_SINGLE_TOOTH) {
-		if (tc->triggerState.hasSynchronizedPhase()) {
-			return 0;
-		}
-
-		// Use the standard 4-stroke crank divider disambiguation. If this ends up 360 degrees out,
-		// swap the return remainder between 0 and 1, but do not allow continuous re-phasing.
-		return tc->syncEnginePhaseAndReport(crankDivider, 0);
-	}
 
 	float maxSyncThreshold = engineConfiguration->maxCamPhaseResolveRpm;
 	if (maxSyncThreshold != 0 && Sensor::getOrZero(SensorType::Rpm) > maxSyncThreshold) {
