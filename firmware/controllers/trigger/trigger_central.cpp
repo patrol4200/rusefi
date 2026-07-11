@@ -191,21 +191,52 @@ PUBLIC_API_WEAK angle_t customAdjustCustom(TriggerCentral *tc, vvt_mode_e vvtMod
   return 0;
 }
 
-static angle_t syncVsEcotec18xSingleToothCam(TriggerCentral *tc, int crankDivider) {
-	int nextToothRemainder = (tc->triggerState.currentCycle.current_index + 1) % crankDivider;
+// VS18X_FIXED_HALF_SINGLE_TOOTH_V3
+// The 18-2 crank wheel already identifies position within one 360-degree crank revolution.
+// The single cam tooth must only choose which of the two crank revolutions is the
+// compression revolution. Never derive cam phase from trigger eventIndex.
+static angle_t syncVsEcotec18xSingleToothCam(TriggerCentral *tc, operation_mode_e operationMode) {
+	constexpr int phaseDivider = 2;
+	constexpr int phaseRemainder = 0;
 
-	// If already phased, don't allow the cam to MOVE phase.
-	// But still allow normal same-phase confirmation.
-	if (tc->triggerState.hasSynchronizedPhase()) {
-		int currentRemainder = tc->triggerState.getSynchronizationCounter() % crankDivider;
-
-		if (currentRemainder != nextToothRemainder) {
-			// Wrong cam relationship - ignore it, don't re-phase.
-			return 0;
-		}
+	if (operationMode != FOUR_STROKE_CRANK_SENSOR) {
+		efiPrintf("VS18X CAM WRONG MODE mode=%d expected=%d",
+			(int)operationMode,
+			(int)FOUR_STROKE_CRANK_SENSOR);
+		return 0;
 	}
 
-	return tc->syncEnginePhaseAndReport(crankDivider, nextToothRemainder);
+	const int currentHalf = tc->triggerState.getSynchronizationCounter() % phaseDivider;
+
+	// Once the cam has selected the correct 360-degree half, never let another
+	// cam edge move phase. This also prevents a noisy or late edge from rebuilding
+	// the ignition schedule while the engine is trying to catch.
+	if (tc->triggerState.hasSynchronizedPhase()) {
+		if (currentHalf != phaseRemainder) {
+			efiPrintf("VS18X CAM HALF MISMATCH ignored half=%d expected=%d index=%d cycle=%d",
+				currentHalf,
+				phaseRemainder,
+				(int)tc->triggerState.currentCycle.current_index,
+				tc->triggerState.getSynchronizationCounter());
+		} else {
+			efiPrintf("VS18X CAM phase already latched half=%d index=%d cycle=%d",
+				currentHalf,
+				(int)tc->triggerState.currentCycle.current_index,
+				tc->triggerState.getSynchronizationCounter());
+		}
+
+		return 0;
+	}
+
+	// Fixed two-half resolution: result can only be 0 or 360 crank degrees.
+	angle_t phaseShift = tc->syncEnginePhaseAndReport(phaseDivider, phaseRemainder);
+	efiPrintf("VS18X PHASE ACQUIRED fixedHalf=%d shift=%.1f index=%d cycle=%d",
+		phaseRemainder,
+		phaseShift,
+		(int)tc->triggerState.currentCycle.current_index,
+		tc->triggerState.getSynchronizationCounter());
+	logVs18xStateTransition("CAM_SYNC");
+	return phaseShift;
 }
 
 static angle_t adjustCrankPhase(int camIndex) {
@@ -214,28 +245,12 @@ static angle_t adjustCrankPhase(int camIndex) {
 	TriggerCentral *tc = getTriggerCentral();
 	vvt_mode_e vvtMode = engineConfiguration->vvtMode[camIndex];
 
-	// VS Ecotec 18-2 + single cam, while keeping the existing TT_VS_ECOTEC_18X_1X dropdown name:
-	// the missing-tooth crank pattern gives a hard tooth-zero reference. The cam is only allowed
-	// to resolve the 720-degree phase once. After that, do not let later cam edges move phase.
+	// Dedicated VS Ecotec single-tooth phase handling.
+	// The crank decoder supplies the hard 16-tooth 360-degree reference.
+	// The cam only selects one of two engine-cycle halves.
 	if (engineConfiguration->trigger.type == trigger_type_e::TT_VS_ECOTEC_18X_1X &&
-		operationMode == FOUR_STROKE_CRANK_SENSOR &&
 		vvtMode == VVT_SINGLE_TOOTH) {
-		if (tc->triggerState.hasSynchronizedPhase()) {
-			efiPrintf("VS18X CAM phase already latched index=%d cycle=%d",
-				(int)tc->triggerState.currentCycle.current_index,
-				tc->triggerState.getSynchronizationCounter());
-			return 0;
-		}
-
-		// Use the standard 4-stroke crank divider disambiguation. If this ends up 360 degrees out,
-		// swap the return remainder between 0 and 1, but do not allow continuous re-phasing.
-		angle_t phaseShift = tc->syncEnginePhaseAndReport(crankDivider, 0);
-		efiPrintf("VS18X PHASE ACQUIRED shift=%.1f index=%d cycle=%d",
-			phaseShift,
-			(int)tc->triggerState.currentCycle.current_index,
-			tc->triggerState.getSynchronizationCounter());
-		logVs18xStateTransition("CAM_SYNC");
-		return phaseShift;
+		return syncVsEcotec18xSingleToothCam(tc, operationMode);
 	}
 
 	float maxSyncThreshold = engineConfiguration->maxCamPhaseResolveRpm;
@@ -255,9 +270,6 @@ static angle_t adjustCrankPhase(int camIndex) {
 	case VVT_MITSUBISHI_4G63:
 		return tc->syncEnginePhaseAndReport(crankDivider, 1);
 	case VVT_SINGLE_TOOTH:
-		if (operationMode == FOUR_STROKE_EIGHTEEN_TIMES_CRANK_SENSOR) {
-			return syncVsEcotec18xSingleToothCam(tc, crankDivider);
-		}
 		[[fallthrough]];
 	case VVT_NISSAN_VQ:
 	case VVT_BOSCH_QUICK_START:
