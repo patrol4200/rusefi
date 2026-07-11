@@ -519,8 +519,7 @@ expected<TriggerDecodeResult> TriggerDecoderBase::decodeTriggerEvent(
 			// VS18_2_CRANKING_COUNT_HOLD
 			// Initial acquisition is still strict: 1.45..4.50 followed by 0.30..0.65.
 			// After sync is established, however, the measured tooth COUNT is much more
-			// reliable than the gap ratio during a combustion kick. Through the complete
-			// start transition (below 2000 rpm), force the
+			// reliable than the gap ratio during a combustion kick. Always force the
 			// known cycle boundary at eventIndex 30 instead of advancing to 32 and losing
 			// crank sync/full phase merely because that one gap signature was compressed.
 			if (triggerConfiguration.TriggerType.type == trigger_type_e::TT_VS_ECOTEC_18X_1X
@@ -529,7 +528,7 @@ expected<TriggerDecodeResult> TriggerDecoderBase::decodeTriggerEvent(
 					- (triggerShape.useOnlyRisingEdges ? 2 : 1);
 				const float rpm = Sensor::getOrZero(SensorType::Rpm);
 
-				if (currentCycle.current_index == expectedIndex && rpm < 2000.0f) { // VS18_2_STARTUP_COUNT_HOLD_2000
+				if (currentCycle.current_index == expectedIndex) { // VS18_2_HARD_COUNT_WRAP
 					if (!isSynchronizationPoint) {
 						const float recoveryRatio = toothDurations[1] != 0
 							? (float)toothDurations[0] / toothDurations[1]
