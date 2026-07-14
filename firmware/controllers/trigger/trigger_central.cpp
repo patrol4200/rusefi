@@ -135,43 +135,6 @@ static bool vvtWithRealDecoder(vvt_mode_e vvtMode) {
 			&& vvtMode != VVT_SINGLE_TOOTH;
 }
 
-// VS18X_PHASE_DEBUG_V2
-// Compile-safe, low-rate diagnostics for the dedicated VS Ecotec decoder.
-// These messages only run when TT_VS_ECOTEC_18X_1X is selected.
-static bool vs18xDebugStateInitialized = false;
-static bool vs18xDebugLastCrankSync = false;
-static bool vs18xDebugLastPhaseSync = false;
-
-static bool isVs18xDebugTrigger() {
-	return engineConfiguration->trigger.type == trigger_type_e::TT_VS_ECOTEC_18X_1X;
-}
-
-static void logVs18xStateTransition(const char *reason) {
-	if (!isVs18xDebugTrigger()) {
-		return;
-	}
-
-	TriggerCentral *tc = getTriggerCentral();
-	bool crankSync = tc->triggerState.getShaftSynchronized();
-	bool phaseSync = tc->triggerState.hasSynchronizedPhase();
-
-	if (!vs18xDebugStateInitialized ||
-		crankSync != vs18xDebugLastCrankSync ||
-		phaseSync != vs18xDebugLastPhaseSync) {
-		efiPrintf("VS18X STATE %s crank=%d phase=%d index=%d cycle=%d rpm=%d",
-			reason,
-			crankSync ? 1 : 0,
-			phaseSync ? 1 : 0,
-			(int)tc->triggerState.currentCycle.current_index,
-			tc->triggerState.getSynchronizationCounter(),
-			(int)Sensor::getOrZero(SensorType::Rpm));
-
-		vs18xDebugStateInitialized = true;
-		vs18xDebugLastCrankSync = crankSync;
-		vs18xDebugLastPhaseSync = phaseSync;
-	}
-}
-
 angle_t TriggerCentral::syncEnginePhaseAndReport(int divider, int remainder) {
 	angle_t engineCycle = getEngineCycle(getEngineRotationState()->getOperationMode());
 
@@ -200,42 +163,18 @@ static angle_t syncVsEcotec18xSingleToothCam(TriggerCentral *tc, operation_mode_
 	constexpr int phaseRemainder = 0;
 
 	if (operationMode != FOUR_STROKE_CRANK_SENSOR) {
-		efiPrintf("VS18X CAM WRONG MODE mode=%d expected=%d",
-			(int)operationMode,
-			(int)FOUR_STROKE_CRANK_SENSOR);
 		return 0;
 	}
-
-	const int currentHalf = tc->triggerState.getSynchronizationCounter() % phaseDivider;
 
 	// Once the cam has selected the correct 360-degree half, never let another
 	// cam edge move phase. This also prevents a noisy or late edge from rebuilding
 	// the ignition schedule while the engine is trying to catch.
 	if (tc->triggerState.hasSynchronizedPhase()) {
-		if (currentHalf != phaseRemainder) {
-			efiPrintf("VS18X CAM HALF MISMATCH ignored half=%d expected=%d index=%d cycle=%d",
-				currentHalf,
-				phaseRemainder,
-				(int)tc->triggerState.currentCycle.current_index,
-				tc->triggerState.getSynchronizationCounter());
-		} else {
-			efiPrintf("VS18X CAM phase already latched half=%d index=%d cycle=%d",
-				currentHalf,
-				(int)tc->triggerState.currentCycle.current_index,
-				tc->triggerState.getSynchronizationCounter());
-		}
-
 		return 0;
 	}
 
 	// Fixed two-half resolution: result can only be 0 or 360 crank degrees.
 	angle_t phaseShift = tc->syncEnginePhaseAndReport(phaseDivider, phaseRemainder);
-	efiPrintf("VS18X PHASE ACQUIRED fixedHalf=%d shift=%.1f index=%d cycle=%d",
-		phaseRemainder,
-		phaseShift,
-		(int)tc->triggerState.currentCycle.current_index,
-		tc->triggerState.getSynchronizationCounter());
-	logVs18xStateTransition("CAM_SYNC");
 	return phaseShift;
 }
 
@@ -367,18 +306,6 @@ void hwHandleVvtCamSignal(bool isRising, efitick_t nowNt, int index) {
 	int camIndex = CAM_BY_INDEX(index);
 	bool invertSetting = camIndex == 0 ? engineConfiguration->invertCamVVTSignal : engineConfiguration->invertExhaustCamVVTSignal;
 
-	if (isVs18xDebugTrigger()) {
-		TriggerCentral *tc = getTriggerCentral();
-		efiPrintf("VS18X CAM RAW input=%d raw=%d invert=%d crank=%d phase=%d index=%d cycle=%d",
-			index,
-			isRising ? 1 : 0,
-			invertSetting ? 1 : 0,
-			tc->triggerState.getShaftSynchronized() ? 1 : 0,
-			tc->triggerState.hasSynchronizedPhase() ? 1 : 0,
-			(int)tc->triggerState.currentCycle.current_index,
-			tc->triggerState.getSynchronizationCounter());
-	}
-
 	if (isRising ^ invertSetting) {
 		hwHandleVvtCamSignal(TriggerValue::RISE, nowNt, index);
 	} else {
@@ -459,17 +386,6 @@ void handleVvtCamSignal(TriggerValue front, efitick_t nowNt, int index) {
 
 	logVvtFront(vvtUseOnlyRise, isImportantFront, front, nowNt, index);
 
-	if (isVs18xDebugTrigger()) {
-		efiPrintf("VS18X CAM DECODE input=%d edge=%d important=%d crank=%d phase=%d index=%d cycle=%d",
-			index,
-			front == TriggerValue::RISE ? 1 : 0,
-			isImportantFront ? 1 : 0,
-			tc->triggerState.getShaftSynchronized() ? 1 : 0,
-			tc->triggerState.hasSynchronizedPhase() ? 1 : 0,
-			(int)tc->triggerState.currentCycle.current_index,
-			tc->triggerState.getSynchronizationCounter());
-	}
-
 	if (!isImportantFront) {
 		// This edge is unimportant, ignore it.
 		return;
@@ -477,9 +393,6 @@ void handleVvtCamSignal(TriggerValue front, efitick_t nowNt, int index) {
 
 	// If the main trigger is not synchronized, don't decode VVT yet
 	if (!tc->triggerState.getShaftSynchronized()) {
-		if (isVs18xDebugTrigger()) {
-			efiPrintf("VS18X CAM IGNORED no crank sync input=%d", index);
-		}
 		return;
 	}
 
@@ -502,12 +415,6 @@ void handleVvtCamSignal(TriggerValue front, efitick_t nowNt, int index) {
 	if (!currentPhase) {
 		// If we couldn't resolve engine speed (yet primary trigger is sync'd), this
 		// probably means that we have partial crank sync, but not RPM information yet
-		if (isVs18xDebugTrigger()) {
-			efiPrintf("VS18X CAM IGNORED no current phase input=%d index=%d cycle=%d",
-				index,
-				(int)tc->triggerState.currentCycle.current_index,
-				tc->triggerState.getSynchronizationCounter());
-		}
 		return;
 	}
 
@@ -986,10 +893,6 @@ void TriggerCentral::handleShaftSignal(trigger_event_e signal, efitick_t timesta
 			primaryTriggerConfiguration,
 			signal, timestamp);
 
-	// This catches both crank-sync transitions and full 720-degree phase resets.
-	// It prints only when either state changes, not on every tooth.
-	logVs18xStateTransition("CRANK_EVENT");
-
 	// Don't propagate state if we don't know where we are
 	if (decodeResult) {
 		ScopePerf perf(PE::ShaftPositionListeners);
@@ -1049,17 +952,6 @@ void TriggerCentral::handleShaftSignal(trigger_event_e signal, efitick_t timesta
 
 		if (engine->rpmCalculator.getCachedRpm() > 0 && triggerIndexForListeners == 0) {
 			engine->module<TpsAccelEnrichment>()->onEngineCycleTps();
-		}
-
-		// Once per engine cycle, report whether the crank is synchronized but full
-		// 720-degree phase is missing. This is the exact state that can explain RPM
-		// continuing while phase-dependent ignition is unavailable.
-		if (isVs18xDebugTrigger() && triggerIndexForListeners == 0 &&
-			!triggerState.hasSynchronizedPhase()) {
-			efiPrintf("VS18X CYCLE NO_PHASE crank=1 index=%d cycle=%d rpm=%d",
-				(int)triggerState.currentCycle.current_index,
-				triggerState.getSynchronizationCounter(),
-				(int)Sensor::getOrZero(SensorType::Rpm));
 		}
 
 		// Handle ignition and injection

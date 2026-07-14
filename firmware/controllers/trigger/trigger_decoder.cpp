@@ -526,24 +526,7 @@ expected<TriggerDecodeResult> TriggerDecoderBase::decodeTriggerEvent(
 				&& wasSynchronized) {
 				const int expectedIndex = (int)triggerShape.getSize()
 					- (triggerShape.useOnlyRisingEdges ? 2 : 1);
-				const float rpm = Sensor::getOrZero(SensorType::Rpm);
-
 				if (currentCycle.current_index == expectedIndex) { // VS18_2_HARD_COUNT_WRAP
-					if (!isSynchronizationPoint) {
-						const float recoveryRatio = toothDurations[1] != 0
-							? (float)toothDurations[0] / toothDurations[1]
-							: 0.0f;
-						const float longGapRatio = toothDurations[2] != 0
-							? (float)toothDurations[1] / toothDurations[2]
-							: 0.0f;
-
-						efiPrintf("VS18X COUNT HOLD rpm=%d index=%d long=%.3f recovery=%.3f",
-							(int)rpm,
-							(int)currentCycle.current_index,
-							longGapRatio,
-							recoveryRatio);
-					}
-
 					isSynchronizationPoint = true;
 				}
 			}
